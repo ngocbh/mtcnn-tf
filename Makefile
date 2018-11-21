@@ -1,28 +1,46 @@
-CXX = g++-8
+CXX = g++
+
 # opencv
 LIBS = $(shell pkg-config --libs opencv)
 CFLAGS = $(shell pkg-config --cflags opencv)
-# tensorlow
+
+
+# tensorflow
 TF_ROOT = libs/libtensorflow/
 LIBS += -Wl,-rpath,$(TF_ROOT)/lib -L$(TF_ROOT)/lib -ltensorflow
 CFLAGS += -I$(TF_ROOT)/include
+
 # c flags
-CFLAGS += -std=c++11 -Wall -O3 -msse2 -lm -Wno-unused-result -Wno-sign-compare -Wno-unused-variable -Wno-parentheses -Wno-format
+CFLAGS += -std=c++11 -Wall -O3 
+LDFLAGS = -lm -Wno-unused-result -Wno-sign-compare -Wno-unused-variable -Wno-parentheses -Wno-format -Wno-unused-command-line-argument -Wno-unused-function
+
 
 BIN = ./bin/detect_face
+OBJ = ./bin/tensorflow_mtcnn.o ./bin/utils_mtcnn.o ./bin/mtcnn.o
+
 .PHONY: clean all
 
-all: ./bin $(BIN)
+all: bin $(BIN) 
 
-./bin/detect_face: ./src/detect_face.cpp ./src/utils/*.h
+$(BIN) : $(OBJ) ./src/utils/*.hpp
 
-./bin:
+$(BIN) : %:%.o
+
+
+%:%.o
+	@echo "Compling $@"
+	@$(CXX) $< -o $@ $(OBJ) $(CFLAGS) $(LIBS) $(LDFLAGS)
+
+bin/%.o : src/%.cpp 
+	@echo "Compling $@"
+	@$(CXX) $(CFLAGS) $(LIBS) $(LDFLAGS) -c $< -o $@ 
+
+bin/%.o : src/mtcnn/%.cpp src/mtcnn/%.hpp
+	@echo "Compling $@"
+	@$(CXX) $(CFLAGS) $(LIBS) $(LDFLAGS) -c $< -o $@
+
+bin:
 	mkdir -p bin
-
-$(BIN) :
-	$(CXX) -o $@ $(filter %.cpp %.o %.c, $^) $(CFLAGS) $(LIBS) 
-$(OBJ) :
-	$(CXX) -o $@ $(firstword $(filter %.cpp %.c, $^) ) -c $(CFLAGS) $(LIBS)
 
 clean :
 	rm -rf bin

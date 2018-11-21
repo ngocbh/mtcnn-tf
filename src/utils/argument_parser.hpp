@@ -1,8 +1,8 @@
 #ifndef __ARGUMENT_PARSER_H__
 #define __ARGUMENT_PARSER_H__
 
-#include "../utils/utils.h"
-#include "../utils/parameters.h"
+#include "utils.hpp"
+#include "parameters.hpp"
 
 
 void parseArgument(int argc, char* argv[])
@@ -13,7 +13,7 @@ void parseArgument(int argc, char* argv[])
         } else if (!strcmp(argv[i], "--output")) {
             fromString(argv[++ i], OUTPUT_IMAGE);
         } else if (!strcmp(argv[i], "--model")) {
-            fromString(argv[++ i], PRETRAIN_MODEL);
+            fromString(argv[++ i], PRETRAINED_MODEL);
         } else {
             fprintf(stderr, "[Warning] Unknown Parameter: %s\n", argv[i]);
         }
