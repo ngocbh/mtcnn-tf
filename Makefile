@@ -15,7 +15,7 @@ CFLAGS += -std=c++11 -Wall -O3
 LDFLAGS = -lm -Wno-unused-result -Wno-sign-compare -Wno-unused-variable -Wno-parentheses -Wno-format -Wno-unused-command-line-argument -Wno-unused-function
 
 
-BIN = ./bin/detect_face
+BIN = ./bin/detect_face ./bin/camera_detect
 OBJ = ./bin/tensorflow_mtcnn.o ./bin/utils_mtcnn.o ./bin/mtcnn.o
 
 .PHONY: clean all

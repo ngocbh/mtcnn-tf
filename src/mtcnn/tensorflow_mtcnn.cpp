@@ -227,8 +227,249 @@ void run_PNet(TF_Session * sess, TF_Graph * graph, cv::Mat& img, scale_window& w
 	TF_DeleteTensor(input_tensor);
 }
 
+void copy_one_patch(const cv::Mat& img,face_box&input_box,float * data_to, int height, int width)
+{
+	cv::Mat resized(height,width,CV_32FC3,data_to);
+
+	cv::Mat chop_img = img(cv::Range(input_box.py0,input_box.py1),
+			cv::Range(input_box.px0, input_box.px1));
+
+	int pad_top = std::abs(input_box.py0 - input_box.y0);
+	int pad_left = std::abs(input_box.px0 - input_box.x0);
+	int pad_bottom = std::abs(input_box.py1 - input_box.y1);
+	int pad_right = std::abs(input_box.px1-input_box.x1);
+
+	cv::copyMakeBorder(chop_img, chop_img, pad_top, pad_bottom,pad_left, pad_right,  cv::BORDER_CONSTANT, cv::Scalar(0));
+
+	cv::resize(chop_img,resized, cv::Size(width, height), 0, 0);
+}
+
 void run_RNet(TF_Session * sess, TF_Graph * graph, cv::Mat& img, std::vector<face_box>& pnet_boxes, std::vector<face_box>& output_boxes)
 {
+	int batch=pnet_boxes.size();
+	int channel = 3;
+	int height = 24;
+	int width = 24;
+
+	float rnet_threshold=0.7;
+
+	/* prepare input image data */
+
+	int  input_size=batch*height*width*channel;
+
+	std::vector<float> input_buffer(input_size);
+
+	float * input_data=input_buffer.data();
+
+	for(int i=0;i<batch;i++)
+	{
+		int patch_size=width*height*channel;
+
+		copy_one_patch(img,pnet_boxes[i], input_data,height,width);
+
+		input_data+=patch_size;
+	}
+
+
+	/* tensorflow  related */
+
+	TF_Status * s= TF_NewStatus();
+
+	std::vector<TF_Output> input_names;
+	std::vector<TF_Tensor*> input_values;
+
+	TF_Operation* input_name=TF_GraphOperationByName(graph, "rnet/input");
+
+	input_names.push_back({input_name, 0});
+
+
+	const int64_t dim[4] = {batch,height,width,channel};
+
+
+	TF_Tensor* input_tensor = TF_NewTensor(TF_FLOAT,dim,4,input_buffer.data(),sizeof(float)*input_size,
+			dummy_deallocator,nullptr);
+
+	input_values.push_back(input_tensor);
+
+
+	std::vector<TF_Output> output_names;
+
+	TF_Operation* output_name = TF_GraphOperationByName(graph,"rnet/conv5-2/conv5-2");
+	output_names.push_back({output_name,0});
+
+	output_name = TF_GraphOperationByName(graph,"rnet/prob1");
+	output_names.push_back({output_name,0});
+
+	std::vector<TF_Tensor*> output_values(output_names.size(), nullptr);
+
+
+	TF_SessionRun(sess,nullptr,input_names.data(),input_values.data(),input_names.size(),
+			output_names.data(),output_values.data(),output_names.size(),
+			nullptr,0,nullptr,s);
+
+
+	assert(TF_GetCode(s) == TF_OK);
+
+	/*retrieval the forward results*/
+
+	const float * conf_data=(const float *)TF_TensorData(output_values[1]);
+	const float * reg_data=(const float *)TF_TensorData(output_values[0]);
+
+
+	for(int i=0;i<batch;i++)
+	{
+
+		if(conf_data[1]>rnet_threshold)
+		{
+			face_box output_box;
+
+			face_box& input_box=pnet_boxes[i];
+
+			output_box.x0=input_box.x0;
+			output_box.y0=input_box.y0;
+			output_box.x1=input_box.x1;
+			output_box.y1=input_box.y1;
+
+			output_box.score = *(conf_data+1);
+
+			/*Note: regress's value is swaped here!!!*/
+			// WHY??? ( because they transpose image in first operation of detect_face, like generate_bouding_box_tf function )
+			output_box.regress[0]=reg_data[1];
+			output_box.regress[1]=reg_data[0];
+			output_box.regress[2]=reg_data[3];
+			output_box.regress[3]=reg_data[2];
+
+			output_boxes.push_back(output_box);
+
+
+		}
+
+		conf_data+=2;
+		reg_data+=4;
+
+	}
+
+	TF_DeleteStatus(s);
+	TF_DeleteTensor(output_values[0]);
+	TF_DeleteTensor(output_values[1]);
+	TF_DeleteTensor(input_tensor);
+}
+
+void run_ONet(TF_Session * sess, TF_Graph * graph, cv::Mat& img, std::vector<face_box>& rnet_boxes, std::vector<face_box>& output_boxes)
+{
+	int batch=rnet_boxes.size();
+	int channel = 3;
+	int height = 48;
+	int width = 48;
+
+	float onet_threshold=0.9;
+
+	/* prepare input image data */
+
+	int  input_size=batch*height*width*channel;
+
+	std::vector<float> input_buffer(input_size);
+
+	float * input_data=input_buffer.data();
+
+	for(int i=0;i<batch;i++)
+	{
+		int patch_size=width*height*channel;
+
+		copy_one_patch(img,rnet_boxes[i], input_data,height,width);
+
+		input_data+=patch_size;
+	}
+
+
+	/* tensorflow  related */
+
+	TF_Status * s= TF_NewStatus();
+
+	std::vector<TF_Output> input_names;
+	std::vector<TF_Tensor*> input_values;
+
+	TF_Operation* input_name=TF_GraphOperationByName(graph, "onet/input");
+
+	input_names.push_back({input_name, 0});
+
+	const int64_t dim[4] = {batch,height,width,channel};
+
+	TF_Tensor* input_tensor = TF_NewTensor(TF_FLOAT,dim,4,input_buffer.data(),sizeof(float)*input_size,
+			dummy_deallocator,nullptr);
+
+	input_values.push_back(input_tensor);
+
+
+	std::vector<TF_Output> output_names;
+
+	TF_Operation* output_name = TF_GraphOperationByName(graph,"onet/conv6-2/conv6-2");
+	output_names.push_back({output_name,0});
+
+	output_name = TF_GraphOperationByName(graph,"onet/conv6-3/conv6-3");
+	output_names.push_back({output_name,0});
+
+	output_name = TF_GraphOperationByName(graph,"onet/prob1");
+	output_names.push_back({output_name,0});
+
+	std::vector<TF_Tensor*> output_values(output_names.size(), nullptr);
+
+
+	TF_SessionRun(sess,nullptr,input_names.data(),input_values.data(),input_names.size(),
+			output_names.data(),output_values.data(),output_names.size(),
+			nullptr,0,nullptr,s);
+
+
+	assert(TF_GetCode(s) == TF_OK);
+
+	/*retrieval the forward results*/
+
+	const float * conf_data=(const float *)TF_TensorData(output_values[2]);
+	const float * reg_data=(const float *)TF_TensorData(output_values[0]);
+	const float * points_data=(const float *)TF_TensorData(output_values[1]);
+
+	for(int i=0;i<batch;i++)
+	{
+
+		if(conf_data[1]>onet_threshold)
+		{
+			face_box output_box;
+
+			face_box& input_box=rnet_boxes[i];
+
+			output_box.x0=input_box.x0;
+			output_box.y0=input_box.y0;
+			output_box.x1=input_box.x1;
+			output_box.y1=input_box.y1;
+
+			output_box.score = conf_data[1];
+
+			output_box.regress[0]=reg_data[1];
+			output_box.regress[1]=reg_data[0];
+			output_box.regress[2]=reg_data[3];
+			output_box.regress[3]=reg_data[2];
+
+			/*Note: switched x,y points value too..*/
+			for (int j = 0; j<5; j++){
+				output_box.landmark.x[j] = *(points_data + j+5);
+				output_box.landmark.y[j] = *(points_data + j);
+			}
+
+			output_boxes.push_back(output_box);
+
+
+		}
+
+		conf_data+=2;
+		reg_data+=4;
+		points_data+=10;
+	}
+
+	TF_DeleteStatus(s);
+	TF_DeleteTensor(output_values[0]);
+	TF_DeleteTensor(output_values[1]);
+	TF_DeleteTensor(output_values[2]);
+	TF_DeleteTensor(input_tensor);
 
 }
 
@@ -242,7 +483,6 @@ void detect_face(TF_Session * sess, TF_Graph * graph, cv::Mat& img, std::vector<
 
 	//convert type of Mat to 32-bit floating-point numbers
 	img.convertTo(working_img, CV_32FC3);
-	working_img = img;
 	//resize value of mat by scaling
 	working_img=(working_img-mean)*alpha;
 	//transpose image ??? WHY
@@ -274,6 +514,7 @@ void detect_face(TF_Session * sess, TF_Graph * graph, cv::Mat& img, std::vector<
 	}
 
 	std::vector<face_box> pnet_boxes;
+	// prepare for RNet, set padding for bouding box (prepare for real padding in RNet )
 	process_boxes(total_pnet_boxes,img_h,img_w,pnet_boxes);
 
 	// RNet
@@ -282,6 +523,47 @@ void detect_face(TF_Session * sess, TF_Graph * graph, cv::Mat& img, std::vector<
 	run_RNet(sess, graph,working_img, pnet_boxes,total_rnet_boxes);
 
 	process_boxes(total_rnet_boxes,img_h,img_w,rnet_boxes);
+
+	// ONet : same with RNet, and it have calculate landmark
+	run_ONet(sess,graph,working_img, rnet_boxes,total_onet_boxes);
+
+	//calculate the landmark
+
+	for(unsigned int i=0;i<total_onet_boxes.size();i++)
+	{
+		face_box& box=total_onet_boxes[i];
+
+		float h=box.x1-box.x0+1;
+		float w=box.y1-box.y0+1;
+
+		for(int j=0;j<5;j++)
+		{
+			box.landmark.x[j]=box.x0+w*box.landmark.x[j]-1;
+			box.landmark.y[j]=box.y0+h*box.landmark.y[j]-1;
+		}
+
+	}
+
+
+	//Get Final Result
+	regress_boxes(total_onet_boxes);
+	nms_boxes(total_onet_boxes, 0.7, NMS_MIN,face_list);
+
+	//switch x and y, since working_img is transposed
+
+	for(unsigned int i=0;i<face_list.size();i++)
+	{
+		face_box& box=face_list[i];
+
+		std::swap(box.x0,box.y0);
+		std::swap(box.x1,box.y1);
+
+		for(int l=0;l<5;l++)
+		{
+			std::swap(box.landmark.x[l],box.landmark.y[l]);
+		}
+	}
+
 }
 
 void successfull(int x)
