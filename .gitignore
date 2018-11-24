@@ -35,3 +35,4 @@
 *.sublime-workspace
 bin/*
 models/events.out.tfevents.*
+libs/*
