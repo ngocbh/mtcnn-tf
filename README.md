@@ -1,4 +1,45 @@
-# mtcnn-tf
+# MTCNN TensorFlow C++ Implementation
+
+## Build
+
+#### Install opencv
+* For Unix user
+```
+brew install opencv
+brew install pkg-config
+```
+
+#### Tensorflow build
+* Flow this [!tutorial](https://www.tensorflow.org/install/source) to build tensorflow c api. A brief: 
+```
+git clone https://github.com/tensorflow/tensorflow.git
+cd tensorflow
+bazel build --config=opt //tensorflow/tools/lib_package:libtensorflow
+```
+* Copy file bazel-bin/tensorflow/tools/lib_package/libtensorflow.tar.gz to mtcnn-tf directory and unzip it
+```
+mkdir -p libs
+cd libs
+(Copy libtensorflow.tar.gz to this directory)
+tar -xvzf libtensorflow.tar.gz
+```
+
+#### Compile by make
+```
+make -j4
+```
+
+## Run
+
+#### Test detect image
+```
+./bin/detect_face --input test.jpg --output test-detected.jpg
+```
+
+#### Test camera
+```
+./bin/camera_detect
+```
 
 ### tensorflow docs
 
